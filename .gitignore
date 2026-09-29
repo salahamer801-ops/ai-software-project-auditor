@@ -1,0 +1,27 @@
+# dependencies
+node_modules
+.pnp
+.pnp.js
+
+# next.js build output
+.next
+out
+build
+dist
+
+# platform + chat files (kept out of the repository)
+.mythex
+.attachments
+
+# environment and secrets
+.env
+.env.*
+!.env.example
+
+# tooling and OS noise
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+.DS_Store
+*.local
+*.log
+npm-debug.log*
