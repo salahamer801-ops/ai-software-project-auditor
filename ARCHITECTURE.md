@@ -30,10 +30,79 @@ QUEUED → CLONING → DETECTING → ANALYZING → SECURITY_SCAN → DEPENDENCY_
                                                           ↘ FAILED / CANCELLED
 ```
 
-`ALLOWED_TRANSITIONS` in `lib/analysis/runner.ts` is enforced by the stage emitter, so no code path can
-skip a stage or move backwards.
+`ALLOWED_TRANSITIONS` in `lib/analysis/state.ts` is enforced by the stage emitter, so no code path can
+skip a stage or move backwards. `tests/state.test.ts` proves the graph: every state can reach `COMPLETED`,
+`FAILED` and `CANCELLED`, the terminal states go nowhere, and a jump such as `QUEUED → TESTING` is refused.
+
+## Pipeline modules
+
+`executeAudit()` is the orchestrator and nothing else — it owns the order of the stages, the job state and
+the failure path. Each stage is its own module, so a stage can be read, reviewed and tested alone:
+
+```
+lib/analysis/
+  runner.ts              order, job state, cancellation, failure handling
+  state.ts               STAGE_LABEL, ALLOWED_TRANSITIONS, StageEmitter, isCancelled
+  source.ts              the manifest: demo / GitHub tarball / uploaded archive
+  evidence.ts            normalisation, grounding, masking, fingerprints
+  summary.ts             verdict, counts, limitations
+  stages/engines.ts      the ten deterministic engines
+  stages/ai.ts           explanatory review + audit summary (bounded, evidence-verified)
+  stages/persist.ts      the audit as one immutable record, in one transaction
+```
+
+The rule catalogue is likewise split by category (`lib/rules/catalog/01-secrets.ts` … `09-tests.ts`) with
+`index.ts` fixing the order — the order is part of the report, so it is explicit rather than incidental.
+
+## Migrations
+
+`lib/db/migrations/` holds ordered, immutable migrations; `lib/db/migrate.ts` is the runner. It runs from
+`ensureSchema()` on the first query of a process, which suits a host that boots on the first request:
+
+- one cheap table check when nothing is pending, each migration in its own transaction otherwise;
+- a session-level advisory lock, so two instances booting together cannot apply the same migration twice;
+- a checksum per applied migration: editing an old migration is reported as drift (logged, surfaced in
+  diagnostics) rather than silently diverging the schema.
+
+Adding a migration means adding a file and registering it in `lib/db/migrations/index.ts`. Migrations are
+never edited after they have been applied anywhere.
+
+## Observability
+
+`lib/observability/log.ts` writes one JSON line per event (`ts`, `level`, `event`, fields) to stdout and
+never throws. Keys that look like credentials, tokens, cookies or passwords are replaced with
+`[redacted]`, long strings and arrays are truncated, and errors are reduced to `{ name, message }` — a
+stack never reaches a log line or a response body.
+
+What is logged, and why it is enough to reconstruct a run: `api.request` / `api.response` with status and
+duration per route, `audit.stage` per transition, `audit.engine` per engine with status and duration,
+`audit.ai.*` for the explanatory layer, `audit.persisted` with the verdict, `audit.failed` with the stage
+it failed in, plus `db.migration.*` and the pool's retry path.
+
+## API errors and validation
+
+Every route handler is wrapped by `withRoute()` (`lib/api/route.ts`):
+
+- a request id per call (reusing an incoming `x-request-id`), echoed on the response and in the log line;
+- typed `ApiError`s (`httpError(status, code, message, details)`) from the route or from the validators
+  (`str`, `oneOf`, `int`, `email`) and `readJson()` (415/413/400 on content type, size, parse);
+- known domain errors mapped to their own status (`ArchiveError` → 400, `GithubError` → 502 or its own),
+  anything unexpected → 500 with a generic message; the real error text goes to the log only.
+
+The response contract is `{ error: <code>, code, message, requestId, details? }` — the UI matches on the
+code, the human text is bilingual, and no database or stack message is ever returned to a client.
+
+## Tests
+
+`npm test` runs 155 tests on Node's built-in runner — no test framework, no network, no database, no server.
+The suite covers the rule catalogue's integrity, the state machine, fingerprint stability and evidence
+grounding, secret masking end to end (a finding may never carry an unmasked value), archive intake against
+path traversal, symlinks and budgets, manifest parsing, stack detection, summary/limitations, migration
+checksums, the AI output contract, and repository-address validation. Six real defects were found and fixed
+this way (see `CHANGELOG.md`).
 
 ## Engines
+
 
 | Engine | Input | Method | Output |
 | --- | --- | --- | --- |
@@ -82,8 +151,19 @@ Next.js App Router, server components for data, small client components only whe
 print stylesheet so the report page doubles as a PDF source. `GET /api/audits/{id}/report` returns the
 same report as JSON for automation.
 
-## Roadmap (V2+)
+## Roadmap
 
-Pull-request mode via webhooks · incremental audits limited to changed files · AI patch suggestions with
-approval before any commit · policy engine (PASS/FAIL gates) · Slack/email notifications ·
-organisations with SSO and billing · self-hosted runners for test execution in a real sandbox.
+The plan is deliberately ordered so the evidence-first architecture (§67) survives every addition: a tool
+detects, evidence proves, AI explains, verification confirms.
+
+| Stage | Content |
+| --- | --- |
+| **V1 — Repository audit** | done: deterministic engines, evidence layer, explanatory AI, report, history, comparison, false-positive decisions |
+| **V1.1 — Engineering hardening** | this release: migrations, automated tests, error handling and validation, observability, split modules, security hardening |
+| **V2 — Execution sandbox** | isolated worker, dependency install, real test execution, build verification, CPU/RAM/time/disk limits, network off by default — the first time project code runs anywhere, and only ever there |
+| **V3 — GitHub PR auditor** | webhooks, changed-files analysis, PR comments, status checks, policy gates (PASS/FAIL) |
+| **V4 — AI fix engine** | patch generation, apply to a temporary branch, run tests, re-audit, show a verified diff — never a push without approval |
+| **V5 — Team/global SaaS** | organisations, seats, billing, notifications, self-hosted runners, enterprise SSO |
+
+What is intentionally *not* built yet: anything that needs a queue, a scheduler or a long-lived process —
+the current host sleeps between requests and there are no scheduled jobs, so V2 starts with that problem.

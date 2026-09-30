@@ -1,14 +1,15 @@
 import { getSessionUserSafe } from "@/lib/session";
 import { isSameOrigin, logAuditEvent, requireProjectAccess } from "@/lib/auth";
 import { deleteProjectData } from "@/lib/queries";
+import { httpError, withRoute } from "@/lib/api/route";
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!isSameOrigin(request)) return Response.json({ error: "bad_origin" }, { status: 403 });
+export const DELETE = withRoute<{ id: string }>("project.delete", async (request, { params }) => {
+  if (!isSameOrigin(request)) throw httpError(403, "bad_origin");
   const user = await getSessionUserSafe();
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!user) throw httpError(401, "unauthorized");
   const { id } = await params;
   const access = await requireProjectAccess(id, user.id, "admin");
-  if (!access) return Response.json({ error: "forbidden" }, { status: 403 });
+  if (!access) throw httpError(403, "forbidden");
 
   await deleteProjectData(id);
   await logAuditEvent({
@@ -19,4 +20,4 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     metadata: { projectId: id, name: access.name },
   });
   return Response.json({ ok: true });
-}
+});

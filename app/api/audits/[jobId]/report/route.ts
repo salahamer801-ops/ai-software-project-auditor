@@ -2,22 +2,24 @@ import { buildReport } from "@/lib/report";
 import { getSessionUserSafe } from "@/lib/session";
 import { getProjectAccess } from "@/lib/auth";
 import { getJob, getProject } from "@/lib/queries";
+import { httpError, withRoute } from "@/lib/api/route";
+import { withSpan } from "@/lib/observability/log";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ jobId: string }> }) {
+export const GET = withRoute<{ jobId: string }>("audit.report", async (_request, { params }, meta) => {
   const user = await getSessionUserSafe();
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!user) throw httpError(401, "unauthorized");
   const { jobId } = await params;
   const job = await getJob(jobId);
-  if (!job) return Response.json({ error: "not_found" }, { status: 404 });
+  if (!job) throw httpError(404, "not_found");
   const project = await getProject(job.project_id);
-  if (!project) return Response.json({ error: "not_found" }, { status: 404 });
+  if (!project) throw httpError(404, "not_found");
   const access = await getProjectAccess(project.id, user.id);
-  if (!access) return Response.json({ error: "forbidden" }, { status: 403 });
+  if (!access) throw httpError(403, "forbidden");
 
-  const report = await buildReport(jobId);
-  if (!report) return Response.json({ error: "report_not_ready" }, { status: 409 });
+  const report = await withSpan("audit.report.build", { requestId: meta.requestId, jobId }, () => buildReport(jobId));
+  if (!report) throw httpError(409, "report_not_ready");
 
   return new Response(JSON.stringify(report, null, 2), {
     headers: {
@@ -26,4 +28,4 @@ export async function GET(_request: Request, { params }: { params: Promise<{ job
       "cache-control": "no-store",
     },
   });
-}
+});

@@ -2,6 +2,7 @@ import { isSameOrigin, logAuditEvent } from "@/lib/auth";
 import { getSessionUserSafe } from "@/lib/session";
 import { parseRepoInput } from "@/lib/sources/github";
 import { createProjectWithJob } from "@/lib/projects";
+import { httpError, oneOf, readJson, str, withRoute } from "@/lib/api/route";
 
 interface Body {
   name?: string;
@@ -10,16 +11,18 @@ interface Body {
   ref?: string;
 }
 
-export async function POST(request: Request) {
-  if (!isSameOrigin(request)) return Response.json({ error: "bad_origin" }, { status: 403 });
-  const user = await getSessionUserSafe();
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
-  if (user.role === "viewer") return Response.json({ error: "forbidden" }, { status: 403 });
+const SOURCE_TYPES = ["github", "demo"] as const;
 
-  const body = (await request.json().catch(() => ({}))) as Body;
-  const sourceType = body.sourceType === "demo" ? "demo" : "github";
-  const name = (body.name ?? "").trim();
-  const ref = (body.ref ?? "").trim() || null;
+export const POST = withRoute("projects.create", async (request) => {
+  if (!isSameOrigin(request)) throw httpError(403, "bad_origin");
+  const user = await getSessionUserSafe();
+  if (!user) throw httpError(401, "unauthorized");
+  if (user.role === "viewer") throw httpError(403, "forbidden");
+
+  const body = await readJson<Body>(request);
+  const sourceType = oneOf(body.sourceType, SOURCE_TYPES, "sourceType", { optional: true }) ?? "github";
+  const name = str(body.name, { field: "name", optional: true, trim: true, max: 200, clamp: true }) ?? "";
+  const ref = str(body.ref, { field: "ref", optional: true, trim: true, max: 200, clamp: true }) || null;
 
   if (sourceType === "demo") {
     const { projectId, jobId } = await createProjectWithJob({
@@ -41,8 +44,9 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, projectId, jobId });
   }
 
-  const parsed = parseRepoInput(body.repositoryUrl ?? "");
-  if (!parsed) return Response.json({ error: "invalid_repo" }, { status: 400 });
+  const repositoryUrl = str(body.repositoryUrl, { field: "repositoryUrl", optional: true, trim: true }) ?? "";
+  const parsed = parseRepoInput(repositoryUrl);
+  if (!parsed) throw httpError(400, "invalid_repo");
 
   const { projectId, jobId } = await createProjectWithJob({
     organizationId: user.organizationId,
@@ -63,4 +67,4 @@ export async function POST(request: Request) {
     metadata: { source: "github", repository: `${parsed.owner}/${parsed.repo}`, ref },
   });
   return Response.json({ ok: true, projectId, jobId });
-}
+});

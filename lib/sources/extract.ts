@@ -246,11 +246,16 @@ export function extractArchive(buffer: Buffer, filename: string, options: Extrac
 
   let declaredPrefix = options.stripPrefix ?? null;
   if (!declaredPrefix) {
-    // GitHub tarballs wrap everything in "<owner>-<repo>-<sha>/".
+    // GitHub tarballs wrap everything in "<owner>-<repo>-<sha>/". The candidate has to look
+    // like such a folder: an entry named "../evil.ts" must not be able to nominate ".." as the
+    // prefix and so get rewritten into a harmless-looking path.
     const first = raw.find((entry) => entry.path.includes("/"))?.path;
     if (first) {
       const candidate = first.split("/")[0]!;
-      if (raw.slice(0, 40).every((entry) => entry.path.startsWith(`${candidate}/`))) declaredPrefix = candidate;
+      const plausible = /^[A-Za-z0-9][A-Za-z0-9._@+-]*$/.test(candidate) && !candidate.includes("..");
+      if (plausible && raw.slice(0, 40).every((entry) => entry.path.startsWith(`${candidate}/`))) {
+        declaredPrefix = candidate;
+      }
     }
   }
 
@@ -265,6 +270,11 @@ export function extractArchive(buffer: Buffer, filename: string, options: Extrac
     }
     let path = item.path;
     if (path.endsWith("/")) continue;
+    // §24: an entry that tries to escape is dropped before any prefix handling can rewrite it.
+    if (normalisePath(path) === null) {
+      skipped.ignoredPaths += 1;
+      continue;
+    }
     if (declaredPrefix && path.startsWith(`${declaredPrefix}/`)) path = path.slice(declaredPrefix.length + 1);
     const safe = normalisePath(path);
     if (!safe) {

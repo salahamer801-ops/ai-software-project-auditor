@@ -1,17 +1,25 @@
 import { getSessionUserSafe } from "@/lib/session";
 import { isSameOrigin, logAuditEvent, requireProjectAccess } from "@/lib/auth";
 import { queueAudit } from "@/lib/projects";
+import { httpError, readJson, str, withRoute } from "@/lib/api/route";
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!isSameOrigin(request)) return Response.json({ error: "bad_origin" }, { status: 403 });
+interface QueueBody {
+  ref?: string;
+}
+
+export const POST = withRoute<{ id: string }>("project.audits.queue", async (request, { params }) => {
+  if (!isSameOrigin(request)) throw httpError(403, "bad_origin");
   const user = await getSessionUserSafe();
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!user) throw httpError(401, "unauthorized");
   const { id } = await params;
   const access = await requireProjectAccess(id, user.id, "developer");
-  if (!access) return Response.json({ error: "forbidden" }, { status: 403 });
+  if (!access) throw httpError(403, "forbidden");
 
-  const body = (await request.json().catch(() => ({}))) as { ref?: string };
-  const ref = (body.ref ?? "").trim() || access.defaultBranch || (access.sourceType === "demo" ? "demo" : null);
+  // The button that queues a manual audit posts no body at all, so an absent body is
+  // an empty object and `ref` falls back to the project's branch.
+  const body = await readJson<QueueBody>(request);
+  const requestedRef = str(body.ref, { field: "ref", optional: true, trim: true, max: 200, clamp: true }) ?? "";
+  const ref = requestedRef || access.defaultBranch || (access.sourceType === "demo" ? "demo" : null);
   const jobId = await queueAudit(id, user.id, ref);
   await logAuditEvent({
     organizationId: user.organizationId,
@@ -21,4 +29,4 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     metadata: { jobId, ref, manual: true },
   });
   return Response.json({ ok: true, jobId });
-}
+});

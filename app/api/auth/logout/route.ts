@@ -1,9 +1,8 @@
 import { clearSessionCookie, isSameOrigin } from "@/lib/auth";
+import { httpError, withRoute } from "@/lib/api/route";
 
-export async function POST(request: Request) {
-  if (!isSameOrigin(request)) {
-    return Response.json({ error: "bad_origin" }, { status: 403 });
-  }
+export const POST = withRoute("auth.logout", async (request) => {
+  if (!isSameOrigin(request)) throw httpError(403, "bad_origin");
   await clearSessionCookie();
   return Response.json({ ok: true });
-}
+});

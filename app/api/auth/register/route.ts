@@ -10,34 +10,42 @@ import {
   recordLoginAttempt,
   setSessionCookie,
 } from "@/lib/auth";
+import { email as validEmail, httpError, readJson, str, withRoute } from "@/lib/api/route";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+interface RegisterBody {
+  name?: string;
+  email?: string;
+  password?: string;
+}
 
-export async function POST(request: Request) {
-  if (!isSameOrigin(request)) {
-    return Response.json({ error: "bad_origin" }, { status: 403 });
-  }
-  const body = (await request.json().catch(() => ({}))) as {
-    name?: string;
-    email?: string;
-    password?: string;
-  };
-  const name = (body.name ?? "").trim().slice(0, 80);
-  const email = (body.email ?? "").trim().toLowerCase().slice(0, 200);
-  const password = body.password ?? "";
+export const POST = withRoute("auth.register", async (request) => {
+  if (!isSameOrigin(request)) throw httpError(403, "bad_origin");
+  const body = await readJson<RegisterBody>(request);
   const ip = clientIp(request);
 
-  if (!name) return Response.json({ error: "name_required" }, { status: 400 });
-  if (!EMAIL_RE.test(email)) return Response.json({ error: "invalid_email" }, { status: 400 });
-  if (password.length < 8) return Response.json({ error: "weak_password" }, { status: 400 });
-  if (await isRateLimited(email, ip, "register")) {
-    return Response.json({ error: "rate_limited" }, { status: 429 });
-  }
+  const name = str(body.name, {
+    field: "name",
+    trim: true,
+    min: 1,
+    max: 80,
+    clamp: true,
+    code: "name_required",
+    message: "A name is required",
+  });
+  const email = validEmail(body.email, "email", { max: 200 });
+  const password = str(body.password, {
+    field: "password",
+    min: 8,
+    code: "weak_password",
+    message: "Password must be at least 8 characters",
+  });
+
+  if (await isRateLimited(email, ip, "register")) throw httpError(429, "rate_limited");
 
   const existing = await query<{ id: string }>(`select id from users where lower(email) = $1 limit 1`, [email]);
   if (existing.length > 0) {
     await recordLoginAttempt(email, ip, false, "register");
-    return Response.json({ error: "email_taken" }, { status: 409 });
+    throw httpError(409, "email_taken");
   }
 
   const userId = newId("usr");
@@ -47,7 +55,7 @@ export async function POST(request: Request) {
       [userId, name, email, hashPassword(password)],
     );
   } catch {
-    return Response.json({ error: "email_taken" }, { status: 409 });
+    throw httpError(409, "email_taken");
   }
   const org = await ensurePersonalOrg(userId, name);
   const session = await createSession(userId, {
@@ -58,4 +66,4 @@ export async function POST(request: Request) {
   await recordLoginAttempt(email, ip, true, "register");
   await logAuditEvent({ organizationId: org.id, userId, action: "user.registered" });
   return Response.json({ ok: true, userId });
-}
+});

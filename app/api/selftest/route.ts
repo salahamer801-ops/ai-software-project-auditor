@@ -1,19 +1,27 @@
 import { runSelfTests } from "@/lib/selftest";
 import { getSessionUserSafe } from "@/lib/session";
+import { httpError, withRoute } from "@/lib/api/route";
+import { log } from "@/lib/observability/log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-export async function POST() {
+export const POST = withRoute("selftest.run", async (_request, _ctx, meta) => {
   const user = await getSessionUserSafe();
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!user) throw httpError(401, "unauthorized");
   const started = Date.now();
   const results = runSelfTests();
+  const passed = results.filter((result) => result.passed).length;
+  const failed = results.length - passed;
+  const durationMs = Date.now() - started;
+
+  log("info", "selftest.finished", { requestId: meta.requestId, passed, failed, durationMs });
+
   return Response.json({
-    ok: results.every((result) => result.passed),
-    durationMs: Date.now() - started,
-    passed: results.filter((result) => result.passed).length,
-    failed: results.filter((result) => !result.passed).length,
+    ok: failed === 0,
+    durationMs,
+    passed,
+    failed,
     results,
   });
-}
+});

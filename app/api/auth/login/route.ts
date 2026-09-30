@@ -11,6 +11,7 @@ import {
   setSessionCookie,
   verifyPassword,
 } from "@/lib/auth";
+import { httpError, readJson, str, withRoute } from "@/lib/api/route";
 
 interface UserRow {
   id: string;
@@ -19,15 +20,15 @@ interface UserRow {
   password_hash: string;
 }
 
-export async function POST(request: Request) {
-  if (!isSameOrigin(request)) {
-    return Response.json({ error: "bad_origin" }, { status: 403 });
-  }
-  const body = (await request.json().catch(() => ({}))) as {
-    email?: string;
-    password?: string;
-    demo?: boolean;
-  };
+interface LoginBody {
+  email?: string;
+  password?: string;
+  demo?: boolean;
+}
+
+export const POST = withRoute("auth.login", async (request) => {
+  if (!isSameOrigin(request)) throw httpError(403, "bad_origin");
+  const body = await readJson<LoginBody>(request);
   const ip = clientIp(request);
 
   // Instant demo session: no email, no signup — a throw-away account so anyone can
@@ -50,12 +51,10 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, demo: true });
   }
 
-  const email = (body.email ?? "").trim().toLowerCase().slice(0, 200);
-  const password = body.password ?? "";
-  if (!email || !password) return Response.json({ error: "invalid_credentials" }, { status: 400 });
-  if (await isRateLimited(email, ip, "login")) {
-    return Response.json({ error: "rate_limited" }, { status: 429 });
-  }
+  const email = str(body.email, { field: "email", optional: true, trim: true, lower: true, max: 200, clamp: true }) ?? "";
+  const password = str(body.password, { field: "password", optional: true }) ?? "";
+  if (!email || !password) throw httpError(400, "invalid_credentials");
+  if (await isRateLimited(email, ip, "login")) throw httpError(429, "rate_limited");
 
   const rows = await query<UserRow>(
     `select id, name, email, password_hash from users where lower(email) = $1 limit 1`,
@@ -64,7 +63,7 @@ export async function POST(request: Request) {
   const user = rows[0];
   if (!user || !verifyPassword(password, user.password_hash)) {
     await recordLoginAttempt(email, ip, false, "login");
-    return Response.json({ error: "invalid_credentials" }, { status: 401 });
+    throw httpError(401, "invalid_credentials");
   }
 
   const org = await ensurePersonalOrg(user.id, user.name);
@@ -76,4 +75,4 @@ export async function POST(request: Request) {
   await recordLoginAttempt(email, ip, true, "login");
   await logAuditEvent({ organizationId: org.id, userId: user.id, action: "user.logged_in" });
   return Response.json({ ok: true, userId: user.id });
-}
+});

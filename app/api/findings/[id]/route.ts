@@ -3,26 +3,31 @@ import { isSameOrigin, logAuditEvent } from "@/lib/auth";
 import { getFindingDetail, recordDecision, updateFindingStatus, type FindingDetail } from "@/lib/queries";
 import { getProjectAccess } from "@/lib/auth";
 import type { FindingStatus } from "@/lib/types";
+import { httpError, oneOf, readJson, str, withRoute } from "@/lib/api/route";
 
 const ALLOWED: FindingStatus[] = ["open", "confirmed", "false_positive", "ignored", "fixed"];
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!isSameOrigin(request)) return Response.json({ error: "bad_origin" }, { status: 403 });
+interface StatusBody {
+  status?: string;
+  reason?: string;
+}
+
+export const PATCH = withRoute<{ id: string }>("finding.update", async (request, { params }) => {
+  if (!isSameOrigin(request)) throw httpError(403, "bad_origin");
   const user = await getSessionUserSafe();
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!user) throw httpError(401, "unauthorized");
   const { id } = await params;
 
   const finding = (await getFindingDetail(id)) as FindingDetail | null;
-  if (!finding) return Response.json({ error: "not_found" }, { status: 404 });
+  if (!finding) throw httpError(404, "not_found");
   const access = await getProjectAccess(finding.project_id, user.id);
   if (!access || !["owner", "admin", "developer"].includes(access.role)) {
-    return Response.json({ error: "forbidden" }, { status: 403 });
+    throw httpError(403, "forbidden");
   }
 
-  const body = (await request.json().catch(() => ({}))) as { status?: string; reason?: string };
-  const status = body.status as FindingStatus;
-  if (!ALLOWED.includes(status)) return Response.json({ error: "invalid_status" }, { status: 400 });
-  const reason = (body.reason ?? "").trim().slice(0, 400) || null;
+  const body = await readJson<StatusBody>(request);
+  const status = oneOf(body.status, ALLOWED, "status", { code: "invalid_status" });
+  const reason = str(body.reason, { field: "reason", optional: true, trim: true, max: 400, clamp: true }) || null;
 
   await updateFindingStatus(id, status, reason, user.id);
   // The decision is stored per fingerprint so the same issue keeps its status in the
@@ -39,4 +44,4 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   });
 
   return Response.json({ ok: true, status, reason });
-}
+});

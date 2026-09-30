@@ -3,6 +3,8 @@ import { getSessionUserSafe } from "@/lib/session";
 import { getJob, getRunByJob, getProject } from "@/lib/queries";
 import { query } from "@/lib/db";
 import { getProjectAccess } from "@/lib/auth";
+import { httpError, withRoute } from "@/lib/api/route";
+import { log } from "@/lib/observability/log";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -13,19 +15,22 @@ export const maxDuration = 300;
  * The stream is what keeps the audit observable without a background worker: each engine
  * transition is persisted on the job row *and* pushed to the browser immediately, so a
  * reload or a sleeping container never loses the audit state.
+ *
+ * No timeout is imposed here on purpose: an audit may legitimately take minutes, so this
+ * route only wraps the existing pipeline with a request id and start/finish log lines.
  */
-export async function POST(_request: Request, { params }: { params: Promise<{ jobId: string }> }) {
+export const POST = withRoute<{ jobId: string }>("audit.run", async (_request, { params }, meta) => {
   const user = await getSessionUserSafe();
-  if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!user) throw httpError(401, "unauthorized");
   const { jobId } = await params;
 
   const job = await getJob(jobId);
-  if (!job) return Response.json({ error: "job_not_found" }, { status: 404 });
+  if (!job) throw httpError(404, "job_not_found");
   const project = await getProject(job.project_id);
-  if (!project) return Response.json({ error: "project_not_found" }, { status: 404 });
+  if (!project) throw httpError(404, "project_not_found");
   const access = await getProjectAccess(project.id, user.id);
   if (!access || !["owner", "admin", "developer"].includes(access.role)) {
-    return Response.json({ error: "forbidden" }, { status: 403 });
+    throw httpError(403, "forbidden");
   }
 
   // Already finished: return the outcome instead of running it twice.
@@ -39,6 +44,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ jo
     });
   }
 
+  const startedAt = Date.now();
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -54,8 +60,21 @@ export async function POST(_request: Request, { params }: { params: Promise<{ jo
           send({ type: "progress", ...event }),
         );
         send({ type: "done", ...outcome });
+        log("info", "audit.run.finished", {
+          requestId: meta.requestId,
+          jobId,
+          status: outcome.status,
+          findings: outcome.findings,
+          durationMs: Date.now() - startedAt,
+        });
       } catch (error) {
         send({ type: "error", error: error instanceof Error ? error.message : "audit_failed" });
+        log("error", "audit.run.failed", {
+          requestId: meta.requestId,
+          jobId,
+          durationMs: Date.now() - startedAt,
+          error,
+        });
       } finally {
         try {
           await query(`update audit_jobs set stages = coalesce(stages, '[]'::jsonb) where id = $1`, [jobId]);
@@ -74,4 +93,4 @@ export async function POST(_request: Request, { params }: { params: Promise<{ jo
       "x-accel-buffering": "no",
     },
   });
-}
+});

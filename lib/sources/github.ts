@@ -30,6 +30,27 @@ export class GithubError extends Error {
 const API = "https://api.github.com";
 const MAX_ARCHIVE_BYTES = 45 * 1024 * 1024;
 
+/**
+ * §38 (SSRF): the host is fixed at api.github.com and the only user-controlled parts of the
+ * URL are the owner and repository names — so they are validated against GitHub's own naming
+ * rules and percent-encoded before they reach a path. Without this, an "owner" of `..` or
+ * `a/b` would quietly address a different endpoint with our token.
+ */
+const OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+const REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
+
+export function isSafeRepoRef(ref: RepoRef): boolean {
+  if (!OWNER_PATTERN.test(ref.owner)) return false;
+  if (!REPO_PATTERN.test(ref.repo)) return false;
+  if (ref.repo === "." || ref.repo === ".." || ref.repo.endsWith(".git.")) return false;
+  return true;
+}
+
+function repoPath(ref: RepoRef): string {
+  if (!isSafeRepoRef(ref)) throw new GithubError("not_found_or_private", "invalid_repository_name");
+  return `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}`;
+}
+
 export function parseRepoInput(input: string): RepoRef | null {
   const value = input.trim();
   if (!value) return null;
@@ -70,7 +91,7 @@ export interface GithubRepoMeta {
 export async function fetchRepoMeta(ref: RepoRef, token?: string | null): Promise<GithubRepoMeta> {
   let res: Response;
   try {
-    res = await fetch(`${API}/repos/${ref.owner}/${ref.repo}`, {
+    res = await fetch(`${API}${repoPath(ref)}`, {
       headers: headers(token),
       signal: AbortSignal.timeout(20_000),
       cache: "no-store",
@@ -95,7 +116,7 @@ export async function fetchRepoMeta(ref: RepoRef, token?: string | null): Promis
 
 export async function fetchCommitSha(ref: RepoRef, revision: string, token?: string | null): Promise<string | null> {
   try {
-    const res = await fetch(`${API}/repos/${ref.owner}/${ref.repo}/commits/${encodeURIComponent(revision)}`, {
+    const res = await fetch(`${API}${repoPath(ref)}/commits/${encodeURIComponent(revision)}`, {
       headers: headers(token),
       signal: AbortSignal.timeout(15_000),
       cache: "no-store",
@@ -122,7 +143,7 @@ export async function fetchRepoArchive(ref: RepoRef, token?: string | null): Pro
 
   let res: Response;
   try {
-    res = await fetch(`${API}/repos/${ref.owner}/${ref.repo}/tarball/${encodeURIComponent(revision)}`, {
+    res = await fetch(`${API}${repoPath(ref)}/tarball/${encodeURIComponent(revision)}`, {
       headers: headers(token),
       redirect: "follow",
       signal: AbortSignal.timeout(45_000),

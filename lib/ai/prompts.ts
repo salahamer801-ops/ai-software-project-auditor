@@ -1,4 +1,5 @@
 import type { Finding, RepoSnapshot } from "../types";
+import { scrubSecrets } from "../engines/shared";
 
 /**
  * Versioned prompts (§30). Each prompt has an id, a version, an explicit output contract
@@ -149,6 +150,8 @@ export function codeContextFor(finding: Finding, content: string | undefined, ra
   const end = Math.min(lines.length, finding.lineStart + radius);
   return lines
     .slice(start, end)
-    .map((line, index) => `${start + index + 1}: ${line.slice(0, 240)}`)
+    // §17/§29: the prompt promises masked context, so the masking happens here — a secret is
+    // never handed to a provider, whatever the finding's rule was.
+    .map((line, index) => `${start + index + 1}: ${scrubSecrets(line.slice(0, 240))}`)
     .join("\n");
 }

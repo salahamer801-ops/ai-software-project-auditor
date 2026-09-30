@@ -383,6 +383,19 @@ export const DICT: Record<string, Entry> = {
   "progress.VERIFYING": { ar: "التحقق من الأدلة", en: "Verifying evidence" },
   "progress.REPORTING": { ar: "إنشاء التقرير", en: "Generating the report" },
   "progress.COMPLETED": { ar: "اكتمل", en: "Completed" },
+
+  "error.title": { ar: "حدث خطأ غير متوقع", en: "Something went wrong" },
+  "error.body": {
+    ar: "لم نتمكن من عرض هذا القسم. جرّب مرة أخرى، وإن تكرّر الخطأ فعُد إلى لوحة التحكم.",
+    en: "We could not render this section. Try again, and if it keeps happening go back to the dashboard.",
+  },
+  "error.digest": { ar: "معرّف الخطأ", en: "Error reference" },
+  "notFound.title": { ar: "الصفحة غير موجودة", en: "Page not found" },
+  "notFound.body": {
+    ar: "قد يكون الرابط قديمًا، أو أن المشروع أو التدقيق قد حُذف.",
+    en: "The link may be out of date, or the project or the audit was deleted.",
+  },
+  "notFound.home": { ar: "الصفحة الرئيسية", en: "Home page" },
 };
 
 export function t(locale: Locale, key: string, vars?: Record<string, string | number>): string {

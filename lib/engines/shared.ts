@@ -122,7 +122,7 @@ export function shannonEntropy(value: string): number {
 }
 
 const PLACEHOLDER_PATTERN =
-  /(example|placeholder|changeme|change_me|your[-_]?key|dummy|sample|test[-_]?key|xxxxxx|todo|fixme|redacted|fake|<[a-z_-]+>|\$\{|\{\{|process\.env|import\.meta\.env|os\.environ)/i;
+  /(example|placeholder|changeme|change_me|your[-_]?(?:[\w]+[-_])*key|dummy|sample|test[-_]?key|xxxxxx|todo|fixme|redacted|fake|<[a-z_-]+>|\$\{|\{\{|process\.env|import\.meta\.env|os\.environ)/i;
 
 export function looksPlaceholder(value: string): boolean {
   return PLACEHOLDER_PATTERN.test(value);

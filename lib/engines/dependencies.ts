@@ -28,6 +28,36 @@ const ECOSYSTEMS: Record<string, string> = {
   maven: "Maven",
 };
 
+/**
+ * Reads a TOML array starting at `openIndex` (which points at the opening `[`).
+ *
+ * A non-greedy regex stops at the first `]`, which truncates a list as soon as an entry
+ * carries an extra such as `"psycopg[binary]>=3.1"`; this walks the brackets and ignores the
+ * ones inside quoted strings instead.
+ */
+function sliceArray(content: string, openIndex: number): string | null {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openIndex; i < content.length; i += 1) {
+    const ch = content[i]!;
+    if (quote) {
+      if (ch === "\\") i += 1;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "[") depth += 1;
+    else if (ch === "]") {
+      depth -= 1;
+      if (depth === 0) return content.slice(openIndex + 1, i);
+    }
+  }
+  return null;
+}
+
 function cleanVersion(raw: string): string {
   return raw
     .trim()
@@ -84,8 +114,13 @@ function parsePackageLock(path: string, content: string, limit = 260): ParsedMan
     if (data.packages) {
       for (const [key, meta] of Object.entries(data.packages)) {
         if (!key || !meta?.version) continue;
-        if (key.startsWith("node_modules/")) continue;
-        const name = key.replace(/^.*node_modules\//, "");
+        // v2/v3 lockfiles key every installed package by its node_modules path — including
+        // nested ones ("node_modules/a/node_modules/b"). The workspace root ("") and local
+        // workspace entries are not dependencies, so they are the ones to skip.
+        const marker = key.lastIndexOf("node_modules/");
+        if (marker === -1) continue;
+        const name = key.slice(marker + "node_modules/".length);
+        if (!name) continue;
         entries.push({ name, version: meta.version, scope: "transitive", unpinned: false });
         if (entries.length >= limit) break;
       }
@@ -123,9 +158,12 @@ function parseRequirements(path: string, content: string): ParsedManifest {
 
 function parsePyproject(path: string, content: string): ParsedManifest {
   const entries: ParsedManifest["entries"] = [];
-  const depBlock = content.match(/dependencies\s*=\s*\[([\s\S]*?)\]/);
-  if (depBlock) {
-    for (const item of depBlock[1]!.split(",")) {
+  const blockMatch = content.match(/dependencies\s*=\s*\[/);
+  const depBlockBody = blockMatch
+    ? sliceArray(content, (blockMatch.index ?? 0) + blockMatch[0].length - 1)
+    : null;
+  if (depBlockBody) {
+    for (const item of depBlockBody.split(",")) {
       const match = item.match(/["']([A-Za-z0-9._\-]+)\s*([<>=!~^]*)\s*([^"']*)["']/);
       if (!match) continue;
       const exact = match[2]!.startsWith("==");
@@ -198,7 +236,10 @@ function parsePubspec(path: string, content: string): ParsedManifest {
 
 function parseGoMod(path: string, content: string): ParsedManifest {
   const entries: ParsedManifest["entries"] = [];
-  for (const line of content.split("\n")) {
+  for (const raw of content.split("\n")) {
+    // `go mod tidy` writes a single-line `require x/y v1.0.0`; inside a block the same line is
+    // indented. Stripping the keyword first covers both spellings.
+    const line = raw.replace(/^\s*require\s+/, " ");
     const match = line.match(/^\s*([a-z0-9.\-]+\/[^\s]+)\s+v([^\s]+)(\s+\/\/\s+indirect)?/i);
     if (!match) continue;
     entries.push({
