@@ -1,5 +1,6 @@
 import { newId, query } from "./db";
 import { slugify } from "./auth";
+import type { AuditJobOptions } from "./types";
 import type { AuditJobRow } from "./queries";
 
 export interface CreateProjectInput {
@@ -76,17 +77,20 @@ export async function queueAudit(
   projectId: string,
   userId: string | null,
   ref: string | null,
+  options: AuditJobOptions = {},
 ): Promise<string> {
   const jobId = newId("job");
+  // The options live on the job, not on the request that runs it: an audit that was allowed to
+  // execute test files says so on its own row, and the audit page can show it before it starts.
   await query(
-    `insert into audit_jobs (id, project_id, triggered_by, ref, status, progress, stages)
-     values ($1,$2,$3,$4,'QUEUED',0,'[]'::jsonb)`,
-    [jobId, projectId, userId, ref],
+    `insert into audit_jobs (id, project_id, triggered_by, ref, status, progress, stages, options)
+     values ($1,$2,$3,$4,'QUEUED',0,'[]'::jsonb,$5::jsonb)`,
+    [jobId, projectId, userId, ref, JSON.stringify({ runTests: options.runTests === true })],
   );
   await query(
     `insert into audit_events (id, organization_id, user_id, project_id, action, metadata)
      select $1, p.organization_id, $2, p.id, 'audit.queued', $3::jsonb from projects p where p.id = $4`,
-    [newId("evt"), userId, JSON.stringify({ jobId, ref }), projectId],
+    [newId("evt"), userId, JSON.stringify({ jobId, ref, runTests: options.runTests === true }), projectId],
   );
   return jobId;
 }

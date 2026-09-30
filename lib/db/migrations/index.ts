@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Migration } from "./types";
 import { baseline } from "./001_baseline";
 import { hardeningIndexes } from "./002_hardening_indexes";
+import { executionSandbox } from "./003_execution_sandbox";
 
 export type { Migration } from "./types";
 
@@ -11,7 +12,7 @@ export type { Migration } from "./types";
  * Order is what the application runs them in, so a new migration always goes last and
  * never reuses an id. `checksumOf` is what makes an edit to an applied migration visible.
  */
-export const MIGRATIONS: Migration[] = [baseline, hardeningIndexes];
+export const MIGRATIONS: Migration[] = [baseline, hardeningIndexes, executionSandbox];
 
 export const LATEST_MIGRATION_ID: string = MIGRATIONS[MIGRATIONS.length - 1]?.id ?? "none";
 

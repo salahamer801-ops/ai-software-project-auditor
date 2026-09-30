@@ -23,6 +23,11 @@ Repository / archive → deterministic engines → evidence layer (fingerprint, 
 - **Stack detection** from manifests and files, never from a folder name.
 - **Ten deterministic engines**: stack, secrets, security, dependencies (OSV), quality, architecture,
   API, database, Docker/CI, tests.
+- **Opt-in execution sandbox**: when you ask for it, self-contained `node:test` files are really run in a
+  restricted child process — Node's permission model (no writes, no child processes, no native addons), a
+  guard that denies the outbound-network entry points, a scrubbed environment, and hard time/memory
+  limits. Passing and failing cases come back as evidence with the line the assertion failed on. Every
+  file that was *not* run is listed with its reason.
 - **Evidence layer**: one rule per finding, file + line, masked evidence snippet, stable fingerprint,
   deduplication, severity from the rule or the advisory, and detection confidence.
 - **Explanatory AI** (optional): specialised versioned prompts produce structured JSON per finding plus
@@ -36,14 +41,18 @@ Repository / archive → deterministic engines → evidence layer (fingerprint, 
   nothing is ever deleted from history.
 - **Bilingual UI**: Arabic (RTL, default) and English, with a keyboard-accessible, responsive layout.
 
-## What it deliberately does not do (V1)
+## What it deliberately does not do
 
-- It **never executes project code**: no dependency install, no test run, no image build, no sandbox
-  escape surface. This is stricter than the original specification and is stated in every report.
-- Test numbers come from **result files committed with the project** (JUnit XML, `coverage-summary.json`,
-  `lcov.info`); otherwise the report says the state is unknown.
-- No pull-request review, no automatic dependency updates, no automatic code fixes, no penetration
-  testing, no requests to external systems. See `ARCHITECTURE.md` for the roadmap.
+- It **never installs dependencies and never builds an image**. Execution exists only for test files that
+  are already self-contained (`node:test` plus relative imports); a suite that needs Jest, Vitest or any
+  package is listed as **not run, with the reason**, never as a failure.
+- **Execution is not a container.** Isolation is in-process: Node's permission model plus network guards.
+  A determined file could outrun a guard that lives in the same process, so the report says so in every
+  run instead of implying containment. Container-level isolation is the next stage (`ARCHITECTURE.md`).
+- It never reaches into a private repository unless you supply a read-only token, and it makes no
+  penetration tests and no requests to systems of the audited project.
+- When tests are not executed, test numbers come from **result files committed with the project**
+  (JUnit XML, `coverage-summary.json`, `lcov.info`); otherwise the report says the state is unknown.
 
 ## Getting started
 
@@ -52,7 +61,7 @@ npm install
 npm run dev        # http://localhost:3000
 npm run build      # production build (standalone output)
 npm run typecheck  # strict TypeScript check
-npm test           # 155 tests, Node's built-in runner: no framework, no network, no database
+npm test           # 182 tests, Node's built-in runner: no framework, no network, no database
 ```
 
 Environment (provisioned by the platform, no manual setup):

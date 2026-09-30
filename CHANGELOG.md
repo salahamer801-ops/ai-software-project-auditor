@@ -3,6 +3,52 @@
 All notable changes to CodeAudit are recorded here. Versions follow the roadmap in `ARCHITECTURE.md`
 (V1 repository audit → V1.1 engineering hardening → V2 execution sandbox → …).
 
+## 1.2.0 — Restricted execution sandbox
+
+The first release where audited code runs — opt-in, bounded, and described in the report as what it is.
+
+### Added
+
+- **Execution sandbox** (`lib/sandbox/`): one child process per test file, started with Node's permission
+  model (`--permission`, workspace readable, no writes), an `--import` guard that denies the outbound
+  network entry points before project code loads, an environment rebuilt from scratch, a heap cap, a
+  per-file deadline enforced with SIGKILL, and a workspace deleted in `finally`.
+- **Runnable-file selection** (`lib/sandbox/candidates.ts`): a file runs only if it is a test file that
+  imports `node:test` and needs no installed package, checked through its relative imports. Every other
+  candidate is reported with a reason code (`needs-runner`, `needs-dependencies`, `too-large`,
+  `unsupported-language`, `over-limit`) — never as a failure.
+- **TAP reading** (`lib/sandbox/tap.ts`): counts from the runner's own summary, leaf cases with the
+  *assertion's* file and line mapped back from the temporary workspace, messages masked, and non-TAP
+  output recognised as "the suite did not load".
+- **Rules `TST-006`–`TST-008`**: failing case, file that does not load, deadline exceeded — confidence
+  `0.99`, evidence from the runner's output, capped at ten case findings with the totals kept in the run.
+- **Migration `003_execution_sandbox`**: `audit_jobs.options` for the per-audit choice, and
+  `test_runs.mode`/`cases`/`sandbox`/`truncated` so an executed run is distinguishable from a parsed
+  artifact and carries its own limits.
+- **UI**: an opt-in switch next to the audit button, and an execution panel on the audit page and in the
+  report showing counts, the failing line, the files that did not run with their reasons, the applied
+  limits, and the sentence that this is in-process isolation rather than a container.
+
+### Fixed
+
+- Engine notes were silently dropped: `runEngine` pushed its own notes array after the callback ran, so
+  notes collected inside the dependencies and tests engines never reached the run record. The callback now
+  receives that array.
+- The TAP reader mis-parsed every YAML block whose indentation depended on the result's depth, which is
+  every top-level test: `error:` and `stack:` bodies were dropped. Cost of the bug: findings pointed at the
+  `test(...)` declaration line instead of the failing assertion.
+- Stack frames are cleaned before the workspace check, so `(file:///workspace/tests/a.test.js:5:10)` maps
+  to `tests/a.test.js:5` instead of falling back to the declaration site.
+
+### Notes
+
+- Executing project code is **off by default** and the limitation section of every report either states
+  that no project code was executed, or states exactly what ran and under which limits — including that
+  this is not container isolation.
+- The demo repository now ships a self-contained `node:test` file with one deliberately failing case and a
+  pure `src/slug.js` module, so the feature can be seen end to end: one file runs and one is listed as
+  skipped because it needs Jest.
+
 ## 1.1.0 — Engineering hardening
 
 Hardening pass over V1: the behaviour a reviewer depends on is now enforced by migrations, tests and a

@@ -351,6 +351,24 @@ module.exports = { formatMoney, totalWithPromo, fetchAvatar, parseSettings };
 `,
   },
   {
+    path: "src/slug.js",
+    content: `'use strict';
+
+// Small pure helper: the demo project's only module a self-contained test can import.
+function slugify(value) {
+  return String(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-');
+}
+
+function slugIsSafe(value) {
+  return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value);
+}
+
+module.exports = { slugify, slugIsSafe };
+`,
+  },
+  {
     path: "src/components/UserList.jsx",
     content: `import React, { useEffect, useState } from 'react';
 import { pool } from '../db';
@@ -515,6 +533,27 @@ describe('auth', () => {
   it.skip('rejects a wrong password', () => {
     expect(true).toBe(false);
   });
+});
+`,
+  },
+  {
+    path: "tests/slug.test.js",
+    content: `const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const { slugify, slugIsSafe } = require('../src/slug');
+
+test('slugify lowercases and joins words', () => {
+  assert.equal(slugify('Hello World'), 'hello-world');
+});
+
+test('slugify keeps digits', () => {
+  assert.equal(slugify('Order 42 report'), 'order-42-report');
+});
+
+test('a generated slug is safe to use in a URL', () => {
+  const slug = slugify('  Pending Orders  ');
+  assert.equal(slugIsSafe(slug), true, 'slug was not safe: ' + slug);
 });
 `,
   },

@@ -51,7 +51,29 @@ convention.
 - Output must be JSON matching the prompt contract; any file/line reference that does not exist in the
   analysed manifest is rejected and recorded in `rejected_evidence_refs`.
 
-## 6. Reporting a problem
+## 6. Executing project code
+
+Repository content is untrusted input, and execution is the only feature that acts on it. Two rules follow.
+
+**Opt-in, per audit.** The job row carries the choice (`audit_jobs.options`). Nothing executes unless the
+person queued the audit with execution enabled, and the audit's report states whether it ran.
+
+**Bounded by construction.** The child process gets Node's permission model with only the workspace
+readable, a guard loaded before project code that makes outbound network entry points throw, an
+environment rebuilt from scratch (no database URL, no tokens, no host paths), a heap cap, a per-file
+deadline enforced with SIGKILL, and a workspace deleted in a `finally`.
+
+**What is out of scope, stated rather than implied.** This is not container isolation. Guards live in the
+same process as the code they police, so a native addon or a low-level bypass is outside what they can
+promise; the audit report says exactly that. There is no dependency install, so nothing can pull code from
+a registry into the run. There is no disk write anywhere in the child, so execution cannot leave anything
+behind except its own stdout, which is masked and truncated before storage.
+
+**One run at a time.** Executions are serialised inside the server process, so a single host cannot be
+saturated by concurrent audits, and a second audit that requested execution reports that it was deferred
+instead of silently skipping it.
+
+## 7. Reporting a problem
 
 If you find an issue in this platform (not in an audited project), describe it in the chat with the steps
 to reproduce it. A finding about your own project can be marked as a false positive from the finding page;

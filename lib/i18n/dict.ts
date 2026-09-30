@@ -311,6 +311,43 @@ export const DICT: Record<string, Entry> = {
   "tests.testFiles": { ar: "ملفات اختبار", en: "Test files" },
   "tests.cases": { ar: "حالات اختبار", en: "Test cases" },
   "tests.none": { ar: "لا اختبارات في المشروع", en: "No tests in this project" },
+  "tests.executed": { ar: "شُغِّلت فعليًا", en: "Really executed" },
+  "tests.detectedOnly": { ar: "كشف ساكن فقط", en: "Static detection only" },
+  "tests.notRequested": {
+    ar: "التشغيل الفعلي اختياري: مُعطَّل في هذا التدقيق",
+    en: "Real execution is opt-in and was off for this audit",
+  },
+
+  "audit.runTests": { ar: "شغِّل اختبارات Node في صندوق محدود", en: "Run Node tests in a restricted sandbox" },
+  "audit.runTestsShort": { ar: "تشغيل الاختبارات في صندوق محدود", en: "Run tests in a restricted sandbox" },
+  "audit.runTestsHint": {
+    ar: "يُشغَّل فقط ما يكتفي بذاته: ملفات تستورد node:test ولا تحتاج حزمًا مثبَّتة. التنفيذ داخل عملية معزولة بلا كتابة على القرص، بلا شبكة، وببيئة منزوعة الأسرار.",
+    en: "Only self-contained files run: they must import node:test and need no installed packages. Execution is a restricted process with no disk writes, no network and a scrubbed environment.",
+  },
+
+  "sandbox.mode": { ar: "وضع التنفيذ", en: "Execution mode" },
+  "sandbox.limits": { ar: "الحدود المطبَّقة", en: "Applied limits" },
+  "sandbox.cases": { ar: "الحالات", en: "Cases" },
+  "sandbox.notRunFiles": { ar: "ملفات لم تُشغَّل", en: "Files that did not run" },
+  "sandbox.crashedFiles": { ar: "ملفات لم تُحمَّل", en: "Files that did not load" },
+  "sandbox.output": { ar: "مخرجات التنفيذ (الأسرار مخفاة)", en: "Execution output (secrets masked)" },
+  "sandbox.duration": { ar: "المدة", en: "Duration" },
+  "sandbox.notAContainer": {
+    ar: "العزل داخل العملية نفسها بشروط Node المقيَّدة وحرّاس واجهات الشبكة — وليس حاوية نظام تشغيل. التفاصيل في قسم الحدود في التقرير.",
+    en: "Isolation is in-process, enforced by Node's permission model and network guards — not an OS container. The report's limitations section says exactly what applies.",
+  },
+  "sandbox.needsRunner": {
+    ar: "يحتاج إطار تشغيل مثبّتًا (Jest/Vitest) — لا يمكن تشغيله هنا دون تثبيت حزم",
+    en: "Needs its own runner installed (Jest/Vitest) — it cannot run here without installing packages",
+  },
+  "sandbox.needsDependencies": {
+    ar: "يستورد حزمة خارجية غير مثبّتة — تشغيله سيعطي فشلًا من الأداة لا من المشروع",
+    en: "Imports a package that is not installed — running it would fail on the harness, not on the project",
+  },
+  "sandbox.tooLarge": { ar: "أكبر من حد حجم ملف الاختبار", en: "Larger than the test-file size limit" },
+  "sandbox.unsupportedLanguage": { ar: "لغة غير مدعومة في الصندوق", en: "Language not supported by the sandbox" },
+  "sandbox.overLimit": { ar: "تجاوز حد عدد الملفات لكل تدقيق", en: "Beyond the per-audit file limit" },
+  "sandbox.assertionLine": { ar: "سطر الفشل", en: "Failing line" },
 
   "quality.loc": { ar: "أسطر الكود", en: "Lines of code" },
   "quality.functions": { ar: "الدوال", en: "Functions" },

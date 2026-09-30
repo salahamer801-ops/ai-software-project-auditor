@@ -193,27 +193,49 @@ export function AuditProgress({
 
 export function RunAuditButton({ projectId, label }: { projectId: string; label: string }) {
   const [busy, setBusy] = useState(false);
+  // Off by default: this is the one switch in the product that lets audited code run at all.
+  const [runTests, setRunTests] = useState(false);
   const router = useRouter();
   const { t } = useI18n();
   return (
-    <button
-      type="button"
-      className="btn btn-primary"
-      disabled={busy}
-      onClick={async () => {
-        setBusy(true);
-        const response = await fetch(`/api/projects/${projectId}/audits`, { method: "POST" });
-        const data = (await response.json().catch(() => ({}))) as { jobId?: string };
-        if (data.jobId) {
-          router.push(`/audits/${data.jobId}`);
-          return;
-        }
-        setBusy(false);
-        alert(t("common.error"));
-      }}
-    >
-      <Icon name="refresh" size={15} />
-      {busy ? t("common.loading") : label}
-    </button>
+    <div className="flex flex-col items-start gap-1.5">
+      <button
+        type="button"
+        className="btn btn-primary"
+        disabled={busy}
+        aria-label={label}
+        onClick={async () => {
+          setBusy(true);
+          const response = await fetch(`/api/projects/${projectId}/audits`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ runTests }),
+          });
+          const data = (await response.json().catch(() => ({}))) as { jobId?: string };
+          if (data.jobId) {
+            router.push(`/audits/${data.jobId}`);
+            return;
+          }
+          setBusy(false);
+          alert(t("common.error"));
+        }}
+      >
+        <Icon name="refresh" size={15} />
+        {busy ? t("common.loading") : label}
+      </button>
+      <label
+        className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted"
+        title={t("audit.runTestsHint")}
+      >
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5"
+          checked={runTests}
+          aria-label={t("audit.runTests")}
+          onChange={(event) => setRunTests(event.target.checked)}
+        />
+        <span>{t("audit.runTestsShort")}</span>
+      </label>
+    </div>
   );
 }

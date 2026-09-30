@@ -5,6 +5,7 @@ import {
   ANALYSIS_LIMITS,
   ENGINE_VERSION,
   RULE_CATALOG_VERSION,
+  type AuditJobOptions,
   type AuditStatus,
   type Finding,
 } from "../types";
@@ -61,6 +62,7 @@ export async function executeAudit(
     projectId: project.id,
     sourceType: project.source_type,
     ref: job.ref ?? project.default_branch ?? null,
+    runTests: jobOptions(job.options).runTests === true,
   });
 
   // The rule catalogue is versioned with the run (§46), so a report can always say which
@@ -129,6 +131,7 @@ export async function executeAudit(
     const analysis = await runAnalysisStage({
       snapshot,
       deadline,
+      options: jobOptions(job.options),
       move: (stage, progress, detail) => emitter.move(stage, progress, detail),
     });
 
@@ -195,6 +198,7 @@ export async function executeAudit(
       engines: analysis.engines,
       advisoriesVerified: analysis.state.advisoriesVerified,
       testsExecuted: analysis.state.testsExecuted,
+      execution: analysis.state.execution,
       aiEnabled: aiConfigured(),
       rejectedEvidenceRefs: normalised.rejectedReferences.length + ai.rejections,
       truncated: snapshot.totals.truncated,
@@ -257,6 +261,16 @@ export async function executeAudit(
     ]).catch(() => undefined);
     return { runId, status: "FAILED", error: message, findings: 0 };
   }
+}
+
+/**
+ * The job's own options, defensively read: the column is JSON written by an earlier version of
+ * this app, so anything unexpected means "do not execute anything".
+ */
+export function jobOptions(raw: unknown): AuditJobOptions {
+  if (!raw || typeof raw !== "object") return {};
+  const value = (raw as { runTests?: unknown }).runTests;
+  return { runTests: value === true };
 }
 
 export async function historyFor(projectId: string) {

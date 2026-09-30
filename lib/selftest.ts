@@ -1,12 +1,15 @@
 import { deflateRawSync } from "node:zlib";
 import { demoSnapshot } from "./demo/demo-repo";
 import { extractArchive } from "./sources/extract";
-import { buildSnapshot, countLoc } from "./sources/snapshot";
+import { buildSnapshot, countLoc, snapshotFromRawFiles } from "./sources/snapshot";
 import { detectStack } from "./engines/stack";
 import { runSecretsEngine } from "./engines/secrets";
 import { runSecurityEngine } from "./engines/security";
 import { runApiEngine } from "./engines/api";
 import { runTestsEngine } from "./engines/tests";
+import { selectRunnableTestFiles } from "./sandbox/candidates";
+import { parseTap } from "./sandbox/tap";
+import { GUARD_SOURCE } from "./sandbox/guard";
 import { runArchitectureEngine } from "./engines/architecture";
 import { runDatabaseEngine } from "./engines/database";
 import { runOpsEngine } from "./engines/ops";
@@ -351,6 +354,85 @@ export function runSelfTests(): SelfTestResult[] {
         assert(prompt.system.length > 40, `${prompt.id} system prompt is too short`);
       }
       return `${FINDING_EXPLANATION_PROMPT.id}@${FINDING_EXPLANATION_PROMPT.version}, ${REPORT_SUMMARY_PROMPT.id}@${REPORT_SUMMARY_PROMPT.version}`;
+    }),
+  );
+
+
+  results.push(
+    check("sandbox-candidates", "Only self-contained node:test files are ever executed", () => {
+      const snapshot = snapshotFromRawFiles(
+        [
+          { path: "tests/self-contained.test.js", content: 'import test from "node:test";\ntest("t", () => {});' },
+          { path: "tests/needs-jest.test.js", content: 'describe("x", () => { it("y", () => {}); });' },
+          {
+            path: "tests/needs-a-package.test.js",
+            content: 'import test from "node:test";\nimport { z } from "zod";\ntest("t", () => z);',
+          },
+        ],
+        { type: "upload", label: "self-test" },
+      );
+      const selection = selectRunnableTestFiles(snapshot, { maxFiles: 5 });
+      assert(selection.runnable.length === 1, `expected one runnable file, got ${selection.runnable.length}`);
+      assert(
+        selection.runnable[0]!.path === "tests/self-contained.test.js",
+        "the wrong file was selected for execution",
+      );
+      const reasons = selection.skipped.map((entry) => entry.reason).sort();
+      assert(reasons.includes("needs-runner"), "a suite needing its own runner was not rejected");
+      assert(reasons.includes("needs-dependencies"), "a suite needing a package was not rejected");
+      return `1 runnable, ${selection.skipped.length} rejected with reasons`;
+    }),
+  );
+
+  results.push(
+    check("sandbox-tap", "Executed results are read from the runner's own output, with the failing line", () => {
+      const tap = [
+        "TAP version 13",
+        "# Subtest: calc",
+        "  # Subtest: adds",
+        "  ok 1 - adds",
+        "    ---",
+        "    duration_ms: 0.4",
+        "    ...",
+        "  # Subtest: subtracts",
+        "  not ok 2 - subtracts",
+        "    ---",
+        "    duration_ms: 0.6",
+        "    location: '/tmp/ws/tests/calc.test.js:3:1'",
+        "    failureType: 'testCodeFailure'",
+        "    error: |-",
+        "      Expected values to be strictly equal:",
+        "    stack: |-",
+        "      TestContext.<anonymous> (file:///tmp/ws/tests/calc.test.js:5:22)",
+        "    ...",
+        "not ok 1 - calc",
+        "  ---",
+        "  failureType: 'subtestFailed'",
+        "  ...",
+        "1..2",
+        "# tests 2",
+        "# pass 1",
+        "# fail 1",
+      ].join("\n");
+      const parsed = parseTap(tap, "/tmp/ws");
+      const totals = parsed.totals;
+      assert(totals !== null && totals.tests === 2, "the harness summary was not read");
+      assert(parsed.cases.length === 2, `expected 2 leaf cases, got ${parsed.cases.length}`);
+      const failure = parsed.cases.find((item) => !item.ok);
+      assert(failure?.file === "tests/calc.test.js", "the failing file was not mapped to the repository");
+      assert(failure?.line === 5, `the assertion line was not used (got ${failure?.line})`);
+      assert(!parsed.cases.some((item) => item.name === "calc"), "the suite line was counted as a case");
+      return `${totals?.tests ?? 0} tests, failing case at ${failure?.file}:${failure?.line}`;
+    }),
+  );
+
+  results.push(
+    check("sandbox-guard", "The execution guard denies network, processes and DNS", () => {
+      for (const needle of ["globalThis.fetch", "net.Socket.prototype.connect", "dgram.Socket.prototype.", "child_process", '"dns"']) {
+        assert(GUARD_SOURCE.includes(needle), `the guard does not cover ${needle}`);
+      }
+      assert(GUARD_SOURCE.includes("__CODEAUDIT_SANDBOX__"), "the guard does not mark itself");
+      return "network, sockets, processes and DNS entry points are denied";
     }),
   );
 

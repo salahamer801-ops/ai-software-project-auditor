@@ -9,6 +9,7 @@ import { Breadcrumbs } from "@/components/ui";
 import { PrintButton } from "@/components/Actions";
 import { Callout, CodeBlock, KeyValue, Panel, PageHeader, SeverityBadge, StatusBadge } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { TestExecutionDetails } from "@/components/TestExecution";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,8 @@ export default async function ReportPage({ params }: { params: Promise<{ jobId: 
   const locale = await getLocale();
   const t = makeT(locale);
   const report = await buildReport(jobId);
+  // An executed run is the evidence of record for the testing section; artifacts follow it.
+  const executedRun = report?.tests.find((item) => item.executed) ?? null;
 
   const severityLabels: Record<string, string> = {
     CRITICAL: t("severity.CRITICAL"),
@@ -240,23 +243,26 @@ export default async function ReportPage({ params }: { params: Promise<{ jobId: 
       </Panel>
 
       <Panel title={`8. ${t("tests.detected")}`} icon="flask">
-        <p className="section-sub mt-1">{t("tests.notRun")}</p>
+        <p className="section-sub mt-1">{executedRun ? t("tests.executed") : t("tests.notRun")}</p>
+        {executedRun ? <TestExecutionDetails testRun={executedRun} t={t} locale={locale} /> : null}
         <ul className="mt-3 space-y-2 text-sm">
-          {report.tests.map((testRun, index) => (
-            <li key={index} className="card-tight">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span>{testRun.framework}</span>
-                <StatusBadge tone={testRun.executed ? "ok" : "neutral"}>
-                  {testRun.executed ? "executed" : t("audit.notVerified")}
-                </StatusBadge>
-              </div>
-              <p className="mt-1 text-xs text-muted">
-                {t("tests.passed")}: {testRun.passed ?? "—"} · {t("tests.failed")}: {testRun.failed ?? "—"} ·{" "}
-                {t("tests.coverage")}: {testRun.coveragePercent ?? "—"}%
-              </p>
-              {testRun.sourceReference ? <p className="mono mt-1 text-xs text-muted">{testRun.sourceReference}</p> : null}
-            </li>
-          ))}
+          {report.tests
+            .filter((testRun) => testRun !== executedRun)
+            .map((testRun, index) => (
+              <li key={index} className="card-tight">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>{testRun.framework}</span>
+                  <StatusBadge tone={testRun.executed ? "ok" : "neutral"}>
+                    {testRun.executed ? t("tests.executed") : t("audit.notVerified")}
+                  </StatusBadge>
+                </div>
+                <p className="mt-1 text-xs text-muted">
+                  {t("tests.passed")}: {testRun.passed ?? "—"} · {t("tests.failed")}: {testRun.failed ?? "—"} ·{" "}
+                  {t("tests.coverage")}: {testRun.coveragePercent ?? "—"}%
+                </p>
+                {testRun.sourceReference ? <p className="mono mt-1 text-xs text-muted">{testRun.sourceReference}</p> : null}
+              </li>
+            ))}
           {report.tests.length === 0 ? <li className="text-sm text-muted">{t("tests.none")}</li> : null}
         </ul>
       </Panel>

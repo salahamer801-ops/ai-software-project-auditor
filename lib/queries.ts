@@ -2,6 +2,7 @@ import { query } from "./db";
 import type {
   AiExplanation,
   ArchitectureSummary,
+  AuditJobOptions,
   AuditSummary,
   BilingualText,
   DependencyRecord,
@@ -10,6 +11,8 @@ import type {
   FindingStatus,
   QualityMetrics,
   RepoSnapshot,
+  SandboxCase,
+  SandboxInfo,
   Severity,
   StackInfo,
   TestRunRecord,
@@ -105,6 +108,8 @@ export interface AuditJobRow {
   status: string;
   progress: number;
   stages: unknown;
+  /** Choices made when the job was queued, including whether it may execute test files. */
+  options: AuditJobOptions | null;
   started_at: string | null;
   completed_at: string | null;
   error_message: string | null;
@@ -421,7 +426,11 @@ export async function listTestRuns(runId: string): Promise<TestRunRecord[]> {
     duration_ms: number | null;
     output_excerpt: string | null;
     source_reference: string | null;
-  }>(`select * from test_runs where audit_run_id = $1 order by status desc`, [runId]);
+    mode: string | null;
+    cases: SandboxCase[] | null;
+    sandbox: SandboxInfo | null;
+    truncated: boolean | null;
+  }>(`select * from test_runs where audit_run_id = $1 order by executed desc, status desc`, [runId]);
   return rows.map((row) => ({
     framework: row.framework ?? "unknown",
     command: row.command,
@@ -434,6 +443,10 @@ export async function listTestRuns(runId: string): Promise<TestRunRecord[]> {
     durationMs: row.duration_ms,
     outputExcerpt: row.output_excerpt,
     sourceReference: row.source_reference,
+    mode: row.mode,
+    cases: row.cases ?? [],
+    sandbox: row.sandbox,
+    truncated: row.truncated ?? false,
   }));
 }
 

@@ -359,8 +359,35 @@ export function int(value: unknown, opts: IntOptions): number | undefined {
   return parsed;
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export interface BoolOptions {
+  field: string;
+  optional?: boolean;
+  code?: string;
+  message?: string;
+}
 
+/**
+ * A strict boolean.
+ *
+ * Deliberately not `Boolean(value)`: the client sends JSON, and a string "false" arriving from a
+ * hand-written request must not silently mean `true` on a switch that decides whether untrusted
+ * code is executed.
+ */
+export function bool(value: unknown, opts: BoolOptions & { optional: true }): boolean | undefined;
+export function bool(value: unknown, opts: BoolOptions): boolean;
+export function bool(value: unknown, opts: BoolOptions): boolean | undefined {
+  const { field, optional, code, message } = opts;
+  if (value === undefined || value === null) {
+    if (optional) return undefined;
+    throw invalid(code, message, field);
+  }
+  if (value === true || value === false) return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw invalid(code, message, field);
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export interface EmailOptions {
   code?: string;
   message?: string;

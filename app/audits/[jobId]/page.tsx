@@ -7,6 +7,7 @@ import { makeT } from "@/lib/i18n/dict";
 import { getJob, getProject, getRunByJob, listDependencies, listFindings, listTestRuns } from "@/lib/queries";
 import { AuditProgress } from "@/components/AuditProgress";
 import { FindingsList, type FindingListItem } from "@/components/FindingsList";
+import { TestExecutionDetails } from "@/components/TestExecution";
 import {
   Breadcrumbs,
   Callout,
@@ -88,6 +89,9 @@ export default async function AuditPage({
   const outdatedDeps = dependencies.filter((item) => item.outdated);
   const failedTests = testRuns.reduce((acc, item) => acc + (item.failed ?? 0), 0);
   const coverage = testRuns.find((item) => item.coveragePercent !== null)?.coveragePercent ?? null;
+  // The executed run (when tests were allowed to run) leads the panel; committed artifacts follow.
+  const executedRun = testRuns.find((item) => item.executed) ?? null;
+  const otherRuns = testRuns.filter((item) => item !== executedRun);
   const architecture = run?.stats?.architecture ?? null;
   const quality = run?.stats?.quality ?? null;
   const engines = run?.engines ?? [];
@@ -351,49 +355,64 @@ export default async function AuditPage({
               )}
             </Panel>
 
-            <Panel title={t("tests.detected")} icon="flask" sub={t("tests.notRun")} flush>
+            <Panel
+              title={t("tests.detected")}
+              icon="flask"
+              sub={executedRun ? t("tests.executed") : t("tests.notRun")}
+              flush
+            >
               {testRuns.length === 0 ? (
                 <div className="panel-body">
                   <p className="text-sm text-muted">{t("tests.none")}</p>
                 </div>
               ) : (
-                <ul className="rows">
-                  {testRuns.map((testRun, index) => (
-                    <li key={index} className="row">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium">{testRun.framework}</span>
-                          <StatusBadge tone={testRun.executed ? "ok" : "neutral"}>
-                            {testRun.executed ? t("audit.verified") : t("audit.notVerified")}
-                          </StatusBadge>
-                        </div>
-                        <p className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-                          {testRun.passed !== null ? (
-                            <span>
-                              {t("tests.passed")}: <strong className="text-ink">{testRun.passed}</strong>
-                            </span>
-                          ) : null}
-                          {testRun.failed !== null ? (
-                            <span>
-                              {t("tests.failed")}: <strong className={testRun.failed > 0 ? "text-critical" : "text-ink"}>{testRun.failed}</strong>
-                            </span>
-                          ) : null}
-                          {testRun.skipped !== null ? (
-                            <span>
-                              {t("tests.skipped")}: <strong className="text-ink">{testRun.skipped}</strong>
-                            </span>
-                          ) : null}
-                          {testRun.coveragePercent !== null ? (
-                            <span>
-                              {t("tests.coverage")}: <strong className="text-ink">{testRun.coveragePercent}%</strong>
-                            </span>
-                          ) : null}
-                        </p>
-                        {testRun.sourceReference ? <p className="row-meta">{testRun.sourceReference}</p> : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  {executedRun ? (
+                    <TestExecutionDetails testRun={executedRun} t={t} locale={locale} />
+                  ) : (
+                    <div className="panel-body">
+                      <p className="text-sm text-muted">{t("tests.notRequested")}</p>
+                    </div>
+                  )}
+                  {otherRuns.length > 0 ? (
+                    <ul className="rows">
+                      {otherRuns.map((testRun, index) => (
+                        <li key={index} className="row">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium">{testRun.framework}</span>
+                              <StatusBadge tone="neutral">{t("audit.notVerified")}</StatusBadge>
+                            </div>
+                            <p className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                              {testRun.passed !== null ? (
+                                <span>
+                                  {t("tests.passed")}: <strong className="text-ink">{testRun.passed}</strong>
+                                </span>
+                              ) : null}
+                              {testRun.failed !== null ? (
+                                <span>
+                                  {t("tests.failed")}:{" "}
+                                  <strong className={testRun.failed > 0 ? "text-critical" : "text-ink"}>{testRun.failed}</strong>
+                                </span>
+                              ) : null}
+                              {testRun.skipped !== null ? (
+                                <span>
+                                  {t("tests.skipped")}: <strong className="text-ink">{testRun.skipped}</strong>
+                                </span>
+                              ) : null}
+                              {testRun.coveragePercent !== null ? (
+                                <span>
+                                  {t("tests.coverage")}: <strong className="text-ink">{testRun.coveragePercent}%</strong>
+                                </span>
+                              ) : null}
+                            </p>
+                            {testRun.sourceReference ? <p className="row-meta">{testRun.sourceReference}</p> : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
               )}
             </Panel>
           </div>

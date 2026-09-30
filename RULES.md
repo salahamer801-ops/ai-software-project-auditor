@@ -72,6 +72,14 @@ during build · `OPS-004` secrets written into CI files · `OPS-005` privileged 
 `TST-001` no tests in the project · `TST-002` failing tests in the committed report · `TST-003` coverage
 below 50% · `TST-004` tests without a documented run command · `TST-005` skipped or focused tests.
 
+`TST-006` a test that failed when actually executed · `TST-007` a test file that does not even load ·
+`TST-008` a suite killed at the execution deadline.
+
+`TST-006` to `TST-008` are the only rules fed by execution rather than by reading the source: they carry
+confidence `0.99` and their evidence is the runner's own output, including the line the assertion failed
+on. They are also the only rules that can be absent for a reason the report states — the sandbox runs a
+file only if it imports `node:test` and needs no installed packages.
+
 ## Severity and confidence
 
 - Severity comes from the rule, except where evidence provides context (a vulnerability advisory's own

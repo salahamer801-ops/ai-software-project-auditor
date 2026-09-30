@@ -145,8 +145,8 @@ export async function persistAudit(input: PersistInput): Promise<number> {
 
     for (const run of state.testRuns) {
       await client.query(
-        `insert into test_runs (id, audit_run_id, framework, command, status, executed, passed, failed, skipped, coverage, duration_ms, output_excerpt, source_reference)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        `insert into test_runs (id, audit_run_id, framework, command, status, executed, passed, failed, skipped, coverage, duration_ms, output_excerpt, source_reference, mode, cases, sandbox, truncated)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb,$17)`,
         [
           newId("tst"),
           runId,
@@ -161,6 +161,10 @@ export async function persistAudit(input: PersistInput): Promise<number> {
           run.durationMs,
           run.outputExcerpt,
           run.sourceReference,
+          run.mode ?? null,
+          JSON.stringify(run.cases ?? []),
+          run.sandbox ? JSON.stringify(run.sandbox) : null,
+          run.truncated ?? false,
         ],
       );
     }

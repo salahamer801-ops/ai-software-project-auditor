@@ -1,4 +1,12 @@
-import type { AuditSummary, BilingualText, EngineRunInfo, Finding, RepoSnapshot, Severity } from "../types";
+import type {
+  AuditSummary,
+  BilingualText,
+  EngineRunInfo,
+  ExecutionSummary,
+  Finding,
+  RepoSnapshot,
+  Severity,
+} from "../types";
 import { countBySeverity, severityRank } from "./evidence";
 import { stackHighlights } from "../engines/stack";
 
@@ -88,20 +96,59 @@ export function buildLimitations(input: {
   engines: EngineRunInfo[];
   advisoriesVerified: boolean;
   testsExecuted: boolean;
+  /**
+   * What the execution phase asked for and did (§24). Absent means "no execution information",
+   * which reads as the plain static-analysis limitation.
+   */
+  execution?: ExecutionSummary | null;
   aiEnabled: boolean;
   rejectedEvidenceRefs: number;
   truncated: boolean;
 }): BilingualText[] {
-  const limitations: BilingualText[] = [
-    {
+  const execution = input.execution;
+  const limitations: BilingualText[] = [];
+  if (input.testsExecuted && execution) {
+    const limits = execution.limits;
+    limitations.push(
+      {
+        ar: `شُغِّلت اختبارات Node فعليًا في ${execution.files} ملف داخل عملية معزولة: لا كتابة على القرص، ولا عمليات فرعية، وبيئة منظّفة بلا أي أسرار، وواجهات الشبكة محجوبة، وبحدود ${limits.perFileMs} مللي/ملف و${limits.memoryMb} ميجابايت من الذاكرة.`,
+        en: `Node tests really ran, in ${execution.files} file(s), inside a restricted child process: no disk writes, no child processes, a scrubbed environment with no secrets, outbound network entry points denied, and limits of ${limits.perFileMs} ms/file and ${limits.memoryMb} MB of memory.`,
+      },
+      {
+        ar: "هذا ليس حاوية: العزل داخل العملية نفسها ويُفرض بنموذج صلاحيات Node وحُرّاس على واجهات الشبكة، لذا لا يُعدّ عزلاً على مستوى نظام التشغيل ولا يُغني عن CI معزول.",
+        en: "This is not a container: isolation happens inside the same process, enforced by Node's permission model and network guards, so it is not operating-system-level isolation and does not replace isolated CI.",
+      },
+    );
+  } else {
+    limitations.push({
       ar: "لا يُنفَّذ أي كود من المشروع: لا تثبيت حزم، ولا تشغيل اختبارات، ولا بناء صور.",
       en: "No project code is executed: no dependency install, no test run, no image build.",
-    },
+    });
+  }
+  if (execution?.requested && !input.testsExecuted) {
+    const reason =
+      execution.status === "busy"
+        ? {
+            ar: "كان تنفيذ آخر يعمل على نفس الخادم، فأُجّل التنفيذ لهذا التدقيق.",
+            en: "Another execution was already running on this host, so this audit did not run tests.",
+          }
+        : execution.status === "no-candidates"
+          ? {
+              ar: `طُلب تشغيل الاختبارات لكن لا يوجد ملف اختبار مكتفٍ بذاته (يستورد node:test فقط وبلا حزم خارجية): ${execution.skipped} ملف مرشّح رُفض، وأسباب الرفض مذكورة في لوحة الاختبارات.`,
+              en: `Tests were requested, but no self-contained file qualifies (it must import node:test and need no outside packages): ${execution.skipped} candidate file(s) were rejected, each with its reason on the tests panel.`,
+            }
+          : {
+              ar: "طُلب تشغيل الاختبارات لكن التنفيذ لم يكتمل على هذا الخادم، والنتائج أدناه من التحليل الساكن.",
+              en: "Tests were requested, but execution did not complete on this host; the results below come from static analysis.",
+            };
+    limitations.push(reason);
+  }
+  limitations.push(
     {
       ar: "التحليل ساكن: المشكلات التي تظهر وقت التشغيل فقط (تزامن، أداء فعلي، سلوك بيئة الإنتاج) لا يمكن تأكيدها هنا.",
       en: "The analysis is static: runtime-only problems (races, real performance, production environment behaviour) cannot be confirmed here.",
     },
-  ];
+  );
   if (!input.testsExecuted) {
     limitations.push({
       ar: "نتائج الاختبار والتغطية مأخوذة من ملفات نتيجتها المرفوعة مع المشروع إن وُجدت، وإلا فهي غير معروفة — ولم يُشغَّل أي اختبار على خوادمنا.",

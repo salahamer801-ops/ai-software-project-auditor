@@ -151,6 +151,37 @@ Next.js App Router, server components for data, small client components only whe
 print stylesheet so the report page doubles as a PDF source. `GET /api/audits/{id}/report` returns the
 same report as JSON for automation.
 
+## Execution sandbox
+
+Execution is the one place where code from the audited project runs, so it is opt-in, bounded and
+described in the report rather than trusted.
+
+**What may run.** A file qualifies only if it is a test file (by path), imports `node:test` explicitly, and
+imports nothing that would have to be installed — checked through its relative imports as well
+(`lib/sandbox/candidates.ts`). Everything else is skipped *with a reason code* that the UI and the report
+translate, because running a Jest suite without Jest would produce failures caused by the harness.
+
+**How it runs.** One child process per file (`lib/sandbox/run.ts`):
+
+| Layer | Enforced by | Effect |
+| --- | --- | --- |
+| `--permission`, `--allow-fs-read=<workspace>` | Node runtime | no filesystem writes, no `child_process`, no workers, no native addons, no `process.binding` |
+| `--import` of the guard (`lib/sandbox/guard.ts`) | our own code | `fetch`, `WebSocket`, `net`/`tls`/`dgram` sockets, `dns`, `http(s)`, `http2` throw before project code loads |
+| `--max-old-space-size` + SIGKILL at the per-file deadline | Node runtime | memory and time bounds, plus a wall budget for the whole phase |
+| Rebuilt environment (`HOME`/`TMPDIR` = workspace, nothing else) | the parent process | no `DATABASE_URL`, no tokens, no host paths |
+| A temporary workspace, removed in `finally` | the parent process | audited files never persist on the host |
+
+**What comes back.** Counts from the runner's own TAP summary, case-level results parsed from TAP
+(`lib/sandbox/tap.ts`), the *assertion's* file and line (mapped back from the temporary path), messages
+passed through the secret masker, the limits the run executed under, and the list of files that did not
+run. `lib/engines/execution.ts` turns failing cases into `TST-006` findings, load failures into `TST-007`
+and deadlines into `TST-008` — capped at ten case findings, with totals kept in the run record.
+
+**What it is not.** Not a container, not a hypervisor, not OS-level isolation. A process that ignores the
+patched entry points (a native addon, or an ESM named binding for the few guards with no prototype hook)
+is beyond what an in-process guard can do. That sentence ships in every report that contains an executed
+run.
+
 ## Roadmap
 
 The plan is deliberately ordered so the evidence-first architecture (§67) survives every addition: a tool
@@ -159,11 +190,13 @@ detects, evidence proves, AI explains, verification confirms.
 | Stage | Content |
 | --- | --- |
 | **V1 — Repository audit** | done: deterministic engines, evidence layer, explanatory AI, report, history, comparison, false-positive decisions |
-| **V1.1 — Engineering hardening** | this release: migrations, automated tests, error handling and validation, observability, split modules, security hardening |
-| **V2 — Execution sandbox** | isolated worker, dependency install, real test execution, build verification, CPU/RAM/time/disk limits, network off by default — the first time project code runs anywhere, and only ever there |
+| **V1.1 — Engineering hardening** | done: migrations, automated tests, error handling and validation, observability, split modules, security hardening |
+| **V1.2 — Restricted execution sandbox** | this release: real `node:test` execution in a permission-limited child process with network guards, scrubbed environment, wall/per-file/memory limits, and case-level evidence — opt-in per audit |
+| **V2 — Isolated execution** | container-level isolation, dependency install, build verification, disk limits, network off by default — what the in-process sandbox explicitly does not claim to be |
 | **V3 — GitHub PR auditor** | webhooks, changed-files analysis, PR comments, status checks, policy gates (PASS/FAIL) |
 | **V4 — AI fix engine** | patch generation, apply to a temporary branch, run tests, re-audit, show a verified diff — never a push without approval |
 | **V5 — Team/global SaaS** | organisations, seats, billing, notifications, self-hosted runners, enterprise SSO |
 
 What is intentionally *not* built yet: anything that needs a queue, a scheduler or a long-lived process —
-the current host sleeps between requests and there are no scheduled jobs, so V2 starts with that problem.
+the host sleeps between requests and there are no scheduled jobs, so containerised execution starts with
+that problem. Until then, isolation is in-process and the report says so.

@@ -262,10 +262,42 @@ export interface VulnerabilityRecord {
   references: string[];
 }
 
+/** Case-level result of an executed test run (§23). Names and messages are masked before storage. */
+export interface SandboxCase {
+  name: string;
+  /** Repository-relative path of the test file, as it exists in the audited project. */
+  file: string;
+  line: number | null;
+  ok: boolean;
+  skipped: boolean;
+  durationMs: number | null;
+  message: string | null;
+}
+
+/** Exactly what an executed run was allowed to do, recorded with the result (§24, §34). */
+export interface SandboxInfo {
+  mode: string;
+  limits: {
+    wallMs: number;
+    perFileMs: number;
+    memoryMb: number;
+    maxFiles: number;
+    maxOutputBytes: number;
+  };
+  /** Test files that were actually executed. */
+  files: string[];
+  /** Files that looked runnable but were skipped, with a stable reason code. */
+  skipped: { path: string; reason: string }[];
+  /** Suites that could not even be loaded (syntax error, missing file). */
+  crashed: { path: string; error: string }[];
+  environment: { env: "scrubbed"; network: "guarded"; filesystem: "read-only"; processes: "denied" };
+  truncated: boolean;
+}
+
 export interface TestRunRecord {
   framework: string;
   command: string | null;
-  status: "detected" | "parsed" | "not_run";
+  status: "detected" | "parsed" | "not_run" | "executed";
   executed: boolean;
   passed: number | null;
   failed: number | null;
@@ -274,6 +306,39 @@ export interface TestRunRecord {
   durationMs: number | null;
   outputExcerpt: string | null;
   sourceReference: string | null;
+  /** Set when the run came from the execution sandbox; null for committed artifacts. */
+  mode?: string | null;
+  /** Case-level results, bounded and masked. */
+  cases?: SandboxCase[];
+  /** The limits the run executed under. */
+  sandbox?: SandboxInfo | null;
+  /** True when the case list or the output was cut at the analysis limits. */
+  truncated?: boolean;
+}
+
+/**
+ * What the execution phase actually did, carried into the report's limitations and the UI.
+ * `notes` are shown verbatim, which is why they read like sentences rather than log fields.
+ */
+export interface ExecutionSummary {
+  requested: boolean;
+  executed: boolean;
+  status: "disabled" | "no-candidates" | "busy" | "executed" | "timeout" | "error";
+  mode: string;
+  files: number;
+  skipped: number;
+  crashed: number;
+  limits: SandboxInfo["limits"];
+  notes: string[];
+}
+
+/** Options chosen when an audit job is queued (persisted on the job row). */
+export interface AuditJobOptions {
+  /**
+   * Run the project's self-contained Node test files in the restricted execution sandbox.
+   * Off by default: it is the only feature that ever runs audited code.
+   */
+  runTests?: boolean;
 }
 
 export interface QualityMetrics {
@@ -316,13 +381,26 @@ export interface AuditSummary {
   highlights: { findingId: string | null; text: BilingualText }[];
 }
 
-export const ENGINE_VERSION = "1.0.0";
-export const RULE_CATALOG_VERSION = "1.0.0";
+export const ENGINE_VERSION = "1.2.0";
+export const RULE_CATALOG_VERSION = "1.2.0";
 export const ANALYSIS_LIMITS = {
   maxFiles: 4000,
   maxFileSize: 400_000,
   maxTotalTextBytes: 12_000_000,
   maxAnalyzableFilesPerEngine: 2500,
   maxTimeMs: 55_000,
+  /**
+   * Limits for the execution sandbox (§24). Everything here is enforced, not advisory: the
+   * wall clock and per-file limits kill the child process with SIGKILL, the memory cap is a
+   * real V8 heap limit, and the file caps bound what is copied into the workspace.
+   */
+  sandbox: {
+    wallMs: 20_000,
+    perFileMs: 8_000,
+    memoryMb: 176,
+    maxFiles: 12,
+    maxOutputBytes: 24_000,
+    maxWorkspaceBytes: 20_000_000,
+  },
 };
 export const APP_NAME = "CodeAudit";
